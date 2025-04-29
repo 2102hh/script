@@ -1,2 +1,134 @@
 The how to, so I dont ever have to go through this again.:/
 bahbah bah
+To complete **Step 1: Configure the Authentication Server (core-auth.zoo.local)** for your LDAP-based domain login system, you'll be setting up **OpenLDAP** on **Debian 12**, which will serve as the central user authentication service.
+
+This guide will explain **what the setup involves** and then show you **how to make a script** to automate Step 1.
+
+---
+
+## ✅ Step 1 Overview: Configure LDAP Server (core-auth.zoo.local)
+
+### Key Tasks:
+1. Install LDAP packages.
+2. Configure domain and admin settings.
+3. Add base directory structure.
+4. Add user entries.
+5. Ensure the server is listening and accessible.
+6. Prepare for external authentication (used in Step 2).
+
+---
+
+## 🔧 Manual Setup (Before Scripting)
+
+### 1. Install Required Packages
+```bash
+sudo apt update
+sudo apt install slapd ldap-utils -y
+```
+
+During install, you’ll be prompted to set an **admin password** for the LDAP directory.
+
+---
+
+### 2. Reconfigure LDAP (If needed)
+```bash
+sudo dpkg-reconfigure slapd
+```
+
+**Suggested values:**
+- Omit OpenLDAP server configuration? → No  
+- DNS domain name: `zoo.local`  
+- Organization name: `Zoo`  
+- Admin password: Choose a strong one  
+- Database backend: `MDB`  
+- Remove database when purging slapd: `No`  
+- Move old database? → Yes (if prompted)  
+- Allow LDAPv2 protocol? → No  
+
+---
+
+### 3. Verify LDAP is Running
+```bash
+sudo systemctl status slapd
+```
+
+---
+
+### 4. Create Base Directory Structure (OU=people, DC=zoo, DC=local)
+You’ll need an LDIF file like this (`base.ldif`):
+
+```ldif
+dn: ou=people,dc=zoo,dc=local
+objectClass: organizationalUnit
+ou: people
+```
+
+Apply it:
+```bash
+ldapadd -x -D cn=admin,dc=zoo,dc=local -W -f base.ldif
+```
+
+---
+
+## ✅ Script: Automate LDAP Server Setup
+
+Create a script named `setup_ldap_server.sh`
+
+```bash
+#!/bin/bash
+
+# Ensure script is run as root
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Please run as root"
+  exit 1
+fi
+
+echo "Updating system and installing OpenLDAP..."
+apt update
+DEBIAN_FRONTEND=noninteractive apt install -y slapd ldap-utils
+
+echo "Reconfiguring slapd..."
+echo "zoo.local" | debconf-set-selections
+dpkg-reconfigure slapd
+
+echo "Creating base LDAP structure..."
+cat <<EOF > /tmp/base.ldif
+dn: ou=people,dc=zoo,dc=local
+objectClass: organizationalUnit
+ou: people
+EOF
+
+ldapadd -x -D cn=admin,dc=zoo,dc=local -w adminpassword -f /tmp/base.ldif
+
+echo "LDAP base structure created."
+```
+
+> 🔒 Replace `adminpassword` with your secure admin password or prompt for it using `read -s` in the script.
+
+---
+
+## 📘 How to Use the Script
+
+1. Save the file:
+```bash
+nano setup_ldap_server.sh
+```
+
+2. Make it executable:
+```bash
+chmod +x setup_ldap_server.sh
+```
+
+3. Run it with root privileges:
+```bash
+sudo ./setup_ldap_server.sh
+```
+
+---
+
+## 🧪 After Script Completes: Verify
+```bash
+ldapsearch -x -LLL -b dc=zoo,dc=local ou=people
+```
+
+You should see the base OU "people" in the output.
